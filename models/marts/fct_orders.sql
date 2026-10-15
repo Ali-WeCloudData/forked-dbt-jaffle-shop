@@ -1,14 +1,29 @@
+{{
+    config(
+        materialized='incremental',
+        unique_key='order_id',
+        incremental_strategy='merge'
+    )
+}}
+
 with
 
 orders as (
 
     select * from {{ ref('stg_orders') }}
 
+    {% if is_incremental() %}
+    -- On an incremental run, only process orders newer than what we've already loaded.
+    -- (Teaching note: a production model would also handle late-arriving rows and the
+    --  customer_order_number window below; we keep it simple here.)
+    where ordered_at > (select coalesce(max(ordered_at), '1900-01-01') from {{ this }})
+    {% endif %}
+
 ),
 
 order_items as (
 
-    select * from {{ ref('order_items') }}
+    select * from {{ ref('fct_order_items') }}
 
 ),
 

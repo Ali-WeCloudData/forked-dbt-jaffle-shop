@@ -1,0 +1,20 @@
+models:
+  - name: dim_supplies
+    description: |
+      Supplies dimension table. The grain of the table is one row per supply and product combination.
+    columns:
+      - name: supply_uuid
+        description: The unique key of the supplies dimension (one row per supply-product combination).
+        data_tests:
+          - not_null
+          - unique
+      - name: supply_id
+        description: The identifier of the supply.
+      - name: product_id
+        description: The foreign key relating to the product the supply is used for.
+      - name: supply_name
+        description: The name of the supply.
+      - name: supply_cost
+        description: The cost of the supply in USD.
+      - name: is_perishable_supply
+        description: A boolean indicating if the supply is perishable.

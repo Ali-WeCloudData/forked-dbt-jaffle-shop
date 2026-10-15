@@ -1,0 +1,14 @@
+models:
+  - name: dim_locations
+    description: |
+      Location dimension table. The grain of the table is one row per location.
+    columns:
+      - name: location_id
+        description: The unique key of the locations dimension.
+        data_tests:
+          - not_null
+          - unique
+      - name: location_name
+        description: The name of the location (store).
+      - name: opened_date
+        description: The date the location opened.

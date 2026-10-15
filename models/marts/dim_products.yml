@@ -1,0 +1,22 @@
+models:
+  - name: dim_products
+    description: |
+      Product dimension table. The grain of the table is one row per product.
+    columns:
+      - name: product_id
+        description: The unique key of the products dimension.
+        data_tests:
+          - not_null
+          - unique
+      - name: product_name
+        description: The name of the product.
+      - name: product_type
+        description: The type of the product (e.g. jaffle, beverage).
+      - name: product_description
+        description: A description of the product.
+      - name: is_food_item
+        description: A boolean indicating if the product is a food item.
+      - name: is_drink_item
+        description: A boolean indicating if the product is a drink item.
+      - name: product_price
+        description: The price of the product in USD.
