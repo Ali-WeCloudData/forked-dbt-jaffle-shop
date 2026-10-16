@@ -4,14 +4,11 @@ name: "jaffle_shop"
 version: "3.0.0"
 require-dbt-version: ">=2.0.0"
 
-dbt-cloud:
-  project-id: 275557 # Put your project id here
-
 profile: jaffle_shop_dbt_project
 
 model-paths: ["models"]
 analysis-paths: ["analyses"]
-test-paths: ["data-tests"]
+test-paths: ["tests"]
 seed-paths: ["seeds"]
 macro-paths: ["macros"]
 snapshot-paths: ["snapshots"]
@@ -31,5 +28,10 @@ models:
   jaffle_shop:
     staging:
       +materialized: view
+      +schema: stg
+    intermediate:
+      +materialized: ephemeral
+      +schema: intermediate
     marts:
       +materialized: table
+      +schema: marts

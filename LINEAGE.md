@@ -3,8 +3,10 @@
 > How data flows through this dbt project, from raw CSV seeds to the final
 > analytics marts. This describes a **cold start**: nothing exists in Snowflake yet.
 >
-> Target warehouse (from `profiles.yml` → `jaffle_shop_dbt_project`):
-> **database** `DBTPROJECTDB`, **dev schema** `dev`, **seed schema** `raw`.
+> Target warehouse (from `profiles.yml` → `jaffle_shop_dbt_project`, `dev` target):
+> **database** `JAFFLE_SHOP_DB`. Schemas: `raw` (seeds), `dev_stg` (staging),
+> `dev_marts` (marts), `dev_snapshots` (snapshot). The intermediate layer is
+> **ephemeral**, so it creates no schema/object.
 
 ---
 
@@ -24,7 +26,7 @@ flowchart LR
     end
 
     %% ---------- SOURCES ----------
-    subgraph RAW["🗄️ Snowflake schema: raw (sources — 'ecom')"]
+    subgraph RAW["🗄️ schema: raw (sources — 'ecom')"]
         direction TB
         s_cust[(raw_customers)]
         s_ord[(raw_orders)]
@@ -35,7 +37,7 @@ flowchart LR
     end
 
     %% ---------- STAGING ----------
-    subgraph STG["🔎 Staging — views in schema: dev"]
+    subgraph STG["🔎 Staging — views in schema: dev_stg"]
         direction TB
         stg_customers{{stg_customers}}
         stg_orders{{stg_orders}}
@@ -45,8 +47,14 @@ flowchart LR
         stg_supplies{{stg_supplies}}
     end
 
+    %% ---------- INTERMEDIATE ----------
+    subgraph INT["⚙️ Intermediate — ephemeral (no object)"]
+        direction TB
+        int_cos["int_customer_orders_summary"]
+    end
+
     %% ---------- MARTS ----------
-    subgraph MARTS["🏛️ Marts — tables in schema: dev"]
+    subgraph MARTS["🏛️ Marts — tables in schema: dev_marts"]
         direction TB
         fct_order_items[fct_order_items]
         fct_orders["fct_orders<br/><i>(incremental)</i>"]
@@ -54,6 +62,12 @@ flowchart LR
         dim_locations[dim_locations]
         dim_products[dim_products]
         dim_supplies[dim_supplies]
+    end
+
+    %% ---------- SNAPSHOT ----------
+    subgraph SNAP["📸 Snapshot — schema: dev_snapshots (SCD2)"]
+        direction TB
+        orders_snapshot["orders_snapshot<br/><i>(check strategy)</i>"]
     end
 
     %% seed -> raw
@@ -72,6 +86,9 @@ flowchart LR
     s_prod --> stg_products
     s_sup --> stg_supplies
 
+    %% raw -> snapshot (same source as the incremental fct_orders)
+    s_ord --> orders_snapshot
+
     %% staging -> marts
     stg_order_items --> fct_order_items
     stg_orders --> fct_order_items
@@ -83,19 +100,24 @@ flowchart LR
     stg_products --> dim_products
     stg_supplies --> dim_supplies
 
-    %% marts -> marts
+    %% marts -> intermediate -> marts
     fct_order_items --> fct_orders
-    fct_orders --> dim_customers
+    fct_orders --> int_cos
+    int_cos --> dim_customers
 
     classDef seed fill:#fef9c3,stroke:#ca8a04,color:#713f12;
     classDef src fill:#e0f2fe,stroke:#0284c7,color:#075985;
     classDef stg fill:#ede9fe,stroke:#7c3aed,color:#4c1d95;
+    classDef int fill:#fae8ff,stroke:#c026d3,color:#701a75;
     classDef mart fill:#dcfce7,stroke:#16a34a,color:#14532d;
+    classDef snap fill:#ffedd5,stroke:#ea580c,color:#7c2d12;
 
     class c_cust,c_ord,c_item,c_store,c_prod,c_sup seed;
     class s_cust,s_ord,s_item,s_store,s_prod,s_sup src;
     class stg_customers,stg_orders,stg_order_items,stg_locations,stg_products,stg_supplies stg;
+    class int_cos int;
     class fct_order_items,fct_orders,dim_customers,dim_locations,dim_products,dim_supplies mart;
+    class orders_snapshot snap;
 ```
 
 ---
@@ -104,105 +126,39 @@ flowchart LR
 
 | Layer | What it is | Materialization | Snowflake location |
 |-------|-----------|-----------------|--------------------|
-| **Seeds** | 6 CSV files shipped in the repo (`seeds/jaffle-data/`). Gated behind `var('load_source_data')`. | `seed` → tables | `DBTPROJECTDB.raw.*` |
-| **Sources** | Logical pointers (`ecom`) to the raw tables the seeds create. Defined in `models/staging/__sources.yml`. | — (not built) | `DBTPROJECTDB.raw.*` |
-| **Staging** | 1:1 cleanup/renaming of each source. Light transforms only. | `view` | `DBTPROJECTDB.dev.stg_*` |
-| **Marts** | Business-level fact (`fct_`) and dimension (`dim_`) tables, analytics-ready. | `table` (except `fct_orders` = `incremental`) | `DBTPROJECTDB.dev.*` |
+| **Seeds** | 6 CSV files shipped in the repo (`seeds/jaffle-data/`). Gated behind `var('load_source_data')`. | `seed` → tables | `JAFFLE_SHOP_DB.raw.*` |
+| **Sources** | Logical pointers (`ecom`) to the raw tables the seeds create. Defined in `models/staging/_sources.yml`. | — (not built) | `JAFFLE_SHOP_DB.raw.*` |
+| **Staging** | 1:1 cleanup/renaming of each source. | `view` | `JAFFLE_SHOP_DB.dev_stg.stg_*` |
+| **Intermediate** | Re-grains orders to one row per customer before the customers dimension. | `ephemeral` (inlined as a CTE) | **none** — no object created |
+| **Marts** | Fact (`fct_`) and dimension (`dim_`) tables, analytics-ready. | `table` (except `fct_orders` = `incremental`) | `JAFFLE_SHOP_DB.dev_marts.*` |
+| **Snapshot** | SCD Type 2 history of `raw_orders` (check strategy). | `snapshot` | `JAFFLE_SHOP_DB.dev_snapshots.orders_snapshot` |
 
 ### Dependency edges (exact, from the SQL)
 
-- `stg_customers`  ← source `ecom.raw_customers`
-- `stg_orders`     ← source `ecom.raw_orders`
-- `stg_order_items`← source `ecom.raw_items`
-- `stg_locations`  ← source `ecom.raw_stores`
-- `stg_products`   ← source `ecom.raw_products`
-- `stg_supplies`   ← source `ecom.raw_supplies`
-- `fct_order_items`← `stg_order_items`, `stg_orders`, `stg_products`, `stg_supplies`
-- `fct_orders`     ← `stg_orders`, `fct_order_items`
-- `dim_customers`  ← `stg_customers`, `fct_orders`
-- `dim_locations`  ← `stg_locations`
-- `dim_products`   ← `stg_products`
-- `dim_supplies`   ← `stg_supplies`
+- `stg_*` ← their matching `ecom.raw_*` source
+- `fct_order_items` ← `stg_order_items`, `stg_orders`, `stg_products`, `stg_supplies`
+- `fct_orders` (incremental) ← `stg_orders`, `fct_order_items`
+- `int_customer_orders_summary` (ephemeral) ← `fct_orders`
+- `dim_customers` ← `stg_customers`, `int_customer_orders_summary`
+- `dim_locations` ← `stg_locations` · `dim_products` ← `stg_products` · `dim_supplies` ← `stg_supplies`
+- `orders_snapshot` ← source `ecom.raw_orders`
 
-> **Build order dbt computes from this DAG:** seeds → all 6 staging views →
-> `fct_order_items` → `fct_orders` → `dim_customers` (+ `dim_locations`,
-> `dim_products`, `dim_supplies` run as soon as their inputs exist).
-
-### About the one incremental model
-
-`fct_orders` is materialized **incremental** (`unique_key='order_id'`, `merge` strategy).
-- **First run** (table doesn't exist yet): dbt builds it from scratch — the full history.
-- **Later runs**: `is_incremental()` is true, so dbt only processes orders newer than the
-  max `ordered_at` already loaded, then `merge`s them in on `order_id`.
-- Force a rebuild any time with `dbt build --select fct_orders --full-refresh`.
+### Incremental vs snapshot — the side-by-side
+Both are built from the **same orders source**, so they contrast cleanly:
+- **`fct_orders`** (incremental, `merge` on `order_id`) keeps only the **current** state of each order.
+- **`orders_snapshot`** (SCD2, `check` strategy on `id`) keeps the **full history**: when a tracked column changes, the old row is closed with `dbt_valid_to` and a new current row is added.
 
 ---
 
-## 3. Step-by-step: a cold start (nothing in Snowflake yet)
+## 3. Step-by-step: a cold start
 
-Assumes real Snowflake credentials are in place for the `jaffle_shop_dbt_project`
-profile.
+1. `dbt deps` — install `dbt_utils`. *(Already done.)*
+2. `dbt debug` / `dbt parse` — verify connection and validate the graph (create nothing).
+3. `dbt seed --full-refresh --vars '{"load_source_data": true}'` — load the 6 CSVs into `raw.*`.
+4. `dbt build --vars '{"load_source_data": true}'` — builds seeds, staging views, marts, the snapshot, and runs every test (generic, singular, unit) in DAG order. The ephemeral intermediate is inlined, not built.
+5. *(Optional)* `dbt docs generate && dbt docs serve` for the lineage site; `dbt snapshot` to re-capture history after a data change.
 
-1. **Install package dependencies**
-   ```bash
-   dbt deps
-   ```
-   Fetches `dbt_utils` into `dbt_packages/`. *(Already done in this workspace.)*
-
-2. **Sanity-check the connection** (creates nothing)
-   ```bash
-   dbt debug          # verifies Snowflake login + DBTPROJECTDB access
-   dbt parse          # validates the project graph
-   ```
-
-3. **Load the raw data from the CSV seeds** — this populates an empty warehouse:
-   ```bash
-   dbt seed --full-refresh --vars '{"load_source_data": true}'
-   ```
-   - Creates schema `DBTPROJECTDB.raw` and loads the 6 CSVs into `raw.raw_*`.
-   - Without `load_source_data: true` the seeds stay **disabled** and the sources
-     would have nothing to read.
-
-4. **Build the models and run all tests**
-   ```bash
-   dbt build
-   ```
-   Runs each node in DAG order and tests it before dependents run: 6 `stg_*` views,
-   then `fct_order_items` → `fct_orders` → `dim_customers`, plus the three other
-   dimensions — alongside the generic tests, the singular test, and the unit test.
-
-5. **(Optional) Explore**
-   ```bash
-   dbt docs generate && dbt docs serve   # browsable lineage + catalog
-   dbt show --select fct_orders          # preview rows
-   ```
-
-### What exists in Snowflake after step 4
-
-```
-DBTPROJECTDB
-├── raw   (from dbt seed)
-│   ├── raw_customers        (table)
-│   ├── raw_orders           (table)
-│   ├── raw_items            (table)
-│   ├── raw_stores           (table)
-│   ├── raw_products         (table)
-│   └── raw_supplies         (table)
-└── dev   (from dbt build)
-    ├── stg_customers        (view)
-    ├── stg_orders           (view)
-    ├── stg_order_items      (view)
-    ├── stg_locations        (view)
-    ├── stg_products         (view)
-    ├── stg_supplies         (view)
-    ├── fct_order_items      (table)
-    ├── fct_orders           (table, incremental)
-    ├── dim_customers        (table)
-    ├── dim_locations        (table)
-    ├── dim_products         (table)
-    └── dim_supplies         (table)
-```
-
-> Schema routing comes from `macros/generate_schema_name.sql`: seeds are forced
-> into a literal `raw` schema, while every other model lands in the target schema
-> (`dev`). With the `prod` target, custom schemas would be prefixed (e.g. `prod_…`).
+> **Schema routing** comes from `macros/generate_schema_name.sql`: seeds go to a bare
+> `raw` schema; every other model is prefixed with the target schema
+> (`dev` + `stg` → `dev_stg`, `dev` + `marts` → `dev_marts`; under the `prod` target,
+> `prod_stg`, `prod_marts`, …). Models with no `+schema` stay in the target schema.

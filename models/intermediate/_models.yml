@@ -1,0 +1,22 @@
+models:
+  - name: int_customer_orders_summary
+    description: >
+      Intermediate model that aggregates orders to one row per customer
+      (lifetime order counts, first/last order dates and spend totals) before
+      the customers dimension consumes it. Materialized as ephemeral, so it
+      creates no object in the warehouse.
+    columns:
+      - name: customer_id
+        description: The customer these order aggregates belong to.
+      - name: count_lifetime_orders
+        description: Total number of orders the customer has ever placed.
+      - name: first_ordered_at
+        description: Timestamp of the customer's first order.
+      - name: last_ordered_at
+        description: Timestamp of the customer's most recent order.
+      - name: lifetime_spend_pretax
+        description: Sum of all pre-tax subtotals across the customer's orders.
+      - name: lifetime_tax_paid
+        description: Sum of all tax paid across the customer's orders.
+      - name: lifetime_spend
+        description: Sum of all order totals (including tax) across the customer's orders.
