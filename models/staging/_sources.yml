@@ -11,8 +11,6 @@ sources:
         description: One record per order (consisting of one or more order items)
       - name: raw_items
         description: Items included in an order
-      - name: raw_stores
-        description: One record per store location
       - name: raw_products
         description: One record per SKU for items sold in stores
       - name: raw_supplies

@@ -3,10 +3,12 @@ models:
     description: Customer data with basic cleaning and transformation applied, one row per customer.
     columns:
       - name: customer_id
-        description: The unique key for each customer.
+        description: "{{ doc('customer_id') }}"
         data_tests:
           - not_null
           - unique
+      - name: customer_name
+        description: The customer's full name.
 
   - name: stg_orders
     description: Order data with basic cleaning and transformation applied, one row per order.
@@ -16,36 +18,60 @@ models:
             expression: "order_total - tax_paid = subtotal"
     columns:
       - name: order_id
-        description: The unique key for each order.
+        description: "{{ doc('order_id') }}"
         data_tests:
           - not_null
           - unique
+      - name: customer_id
+        description: "{{ doc('customer_id') }}"
+      - name: subtotal
+        description: The pre-tax total of the order in USD (converted from cents).
+      - name: tax_paid
+        description: The tax charged on the order in USD (converted from cents).
+      - name: order_total
+        description: The total amount of the order in USD, including tax (converted from cents).
+      - name: ordered_at
+        description: "{{ doc('ordered_at') }}"
 
   - name: stg_order_items
     description: Individual food and drink items that make up our orders, one row per item.
     columns:
       - name: order_item_id
-        description: The unique key for each order item.
+        description: "{{ doc('order_item_id') }}"
         data_tests:
           - not_null
           - unique
       - name: order_id
-        description: The corresponding order each order item belongs to.
+        description: "{{ doc('order_id') }}"
         data_tests:
           - not_null
           - relationships:
               arguments:
                 to: ref('stg_orders')
                 field: order_id
+      - name: product_id
+        description: "{{ doc('product_id') }}"
 
   - name: stg_products
     description: Product (food and drink items that can be ordered) data with basic cleaning and transformation applied, one row per product.
     columns:
       - name: product_id
-        description: The unique key for each product.
+        description: "{{ doc('product_id') }}"
         data_tests:
           - not_null
           - unique
+      - name: product_name
+        description: The name of the product.
+      - name: product_type
+        description: The category of the product (e.g. jaffle, beverage).
+      - name: product_description
+        description: A free-text description of the product.
+      - name: product_price
+        description: The price of the product in USD (converted from cents).
+      - name: is_food_item
+        description: A boolean indicating if the product is a food item.
+      - name: is_drink_item
+        description: A boolean indicating if the product is a drink item.
 
   - name: stg_supplies
     description: >
@@ -54,50 +80,17 @@ models:
       One row per supply cost, not per supply. As supply costs fluctuate they receive a new row with a new UUID. Thus there can be multiple rows per supply_id.
     columns:
       - name: supply_uuid
-        description: The unique key of our supplies per cost.
+        description: The unique key of a supply at a given cost (one row per supply-and-cost combination), generated with dbt_utils.generate_surrogate_key.
         data_tests:
           - not_null
           - unique
-
-  - name: stg_locations
-    description: List of open locations with basic cleaning and transformation applied, one row per location.
-    columns:
-      - name: location_id
-        description: The unique key for each location.
-        data_tests:
-          - not_null
-          - unique
-
-unit_tests:
-  - name: test_does_location_opened_at_trunc_to_date
-    description: "Check that opened_at timestamp is properly truncated to a date."
-    model: stg_locations
-    given:
-      - input: source('ecom', 'raw_stores')
-        rows:
-          - {
-              id: 1,
-              name: "Vice City",
-              tax_rate: 0.2,
-              opened_at: "2016-09-01T00:00:00",
-            }
-          - {
-              id: 2,
-              name: "San Andreas",
-              tax_rate: 0.1,
-              opened_at: "2079-10-27T23:59:59.9999",
-            }
-    expect:
-      rows:
-        - {
-            location_id: 1,
-            location_name: "Vice City",
-            tax_rate: 0.2,
-            opened_date: "2016-09-01",
-          }
-        - {
-            location_id: 2,
-            location_name: "San Andreas",
-            tax_rate: 0.1,
-            opened_date: "2079-10-27",
-          }
+      - name: supply_id
+        description: The identifier of the supply; can recur across rows as its cost changes over time.
+      - name: product_id
+        description: "{{ doc('product_id') }}"
+      - name: supply_name
+        description: The name of the supply.
+      - name: supply_cost
+        description: The cost of the supply in USD (converted from cents).
+      - name: is_perishable_supply
+        description: A boolean indicating whether the supply is perishable.

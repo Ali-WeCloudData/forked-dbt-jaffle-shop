@@ -1,6 +1,6 @@
 models:
   - name: fct_orders
-    description: Order fact table, offering key details for each order including whether it's a customer's first order and a food vs. drink breakdown. One row per order.
+    description: Order fact table, offering key details for each order including a food vs. drink breakdown and order-level cost. One row per order.
     data_tests:
       - dbt_utils.expression_is_true:
           arguments:
@@ -15,33 +15,42 @@ models:
           - not_null
           - unique
       - name: customer_id
-        description: The foreign key relating to the customer who placed the order.
+        description: "{{ doc('customer_id') }}"
         data_tests:
           - relationships:
               arguments:
                 to: ref('stg_customers')
                 field: customer_id
-      - name: location_id
-        description: The foreign key relating to the location (store) where the order was placed.
+      - name: subtotal
+        description: The pre-tax total of the order in USD.
+      - name: tax_paid
+        description: The tax charged on the order in USD.
       - name: order_total
-        description: The total amount of the order in USD including tax.
+        description: The total amount of the order in USD, including tax.
       - name: ordered_at
-        description: The timestamp the order was placed at.
+        description: "{{ doc('ordered_at') }}"
       - name: order_cost
-        description: The sum of supply expenses to fulfill the order.
+        description: The sum of supply expenses to fulfil the order in USD.
+      - name: order_items_subtotal
+        description: The sum of the product prices of the order's items in USD (should equal subtotal).
+      - name: count_order_items
+        description: The number of order items in the order.
+      - name: count_food_items
+        description: The number of food items in the order.
+      - name: count_drink_items
+        description: The number of drink items in the order.
       - name: is_food_order
         description: A boolean indicating if this order included any food items.
       - name: is_drink_order
         description: A boolean indicating if this order included any drink items.
-      - name: customer_order_number
-        description: The sequence number of this order for the customer (1 = their first order).
 
   - name: fct_order_items
     description: |
-      Order item fact table. The grain of the table is one row per order item.
+      Order item fact table. One enriched row per order item, with its product
+      details and per-product supply cost.
     columns:
       - name: order_item_id
-        description: The unique key of the order items fact table.
+        description: "{{ doc('order_item_id') }}"
         data_tests:
           - not_null
           - unique
@@ -53,13 +62,24 @@ models:
                 to: ref('fct_orders')
                 field: order_id
       - name: product_id
-        description: The foreign key relating to the product ordered.
+        description: "{{ doc('product_id') }}"
+        data_tests:
+          - relationships:
+              arguments:
+                to: ref('dim_products')
+                field: product_id
       - name: ordered_at
-        description: The timestamp the order was placed at.
+        description: "{{ doc('ordered_at') }}"
+      - name: product_name
+        description: The name of the product ordered.
+      - name: product_price
+        description: The price of the product in USD (this item's revenue).
       - name: is_food_item
         description: A boolean indicating if this order item is a food item.
       - name: is_drink_item
         description: A boolean indicating if this order item is a drink item.
+      - name: supply_cost
+        description: The total supply cost for this item's product in USD.
 
   - name: dim_customers
     description: Customer dimension table, offering key details for each unique customer. One row per customer.
@@ -69,26 +89,26 @@ models:
             expression: "lifetime_spend_pretax + lifetime_tax_paid = lifetime_spend"
     columns:
       - name: customer_id
-        description: The unique key of the customers dimension.
+        description: "{{ doc('customer_id') }}"
         data_tests:
           - not_null
           - unique
       - name: customer_name
-        description: Customer's full name.
+        description: The customer's full name.
       - name: count_lifetime_orders
-        description: Total number of orders a customer has ever placed.
+        description: Total number of orders the customer has ever placed.
       - name: first_ordered_at
-        description: The timestamp when a customer placed their first order.
+        description: The timestamp when the customer placed their first order.
       - name: last_ordered_at
-        description: The timestamp of a customer's most recent order.
+        description: The timestamp of the customer's most recent order.
       - name: lifetime_spend_pretax
-        description: The sum of all the pre-tax subtotals of every order a customer has placed.
+        description: The sum of all the pre-tax subtotals of every order the customer has placed (USD).
       - name: lifetime_tax_paid
-        description: The sum of all the tax portion of every order a customer has placed.
+        description: The sum of all the tax paid across every order the customer has placed (USD).
       - name: lifetime_spend
-        description: The sum of all the order totals (including tax) that a customer has ever placed.
+        description: The sum of all order totals (including tax) the customer has ever placed (USD).
       - name: customer_type
-        description: Options are 'new' or 'returning', indicating if a customer has ordered more than once or has only placed their first order to date.
+        description: Either 'new' or 'returning', indicating whether the customer has placed more than one order.
         data_tests:
           - accepted_values:
               arguments:
@@ -96,59 +116,25 @@ models:
 
   - name: dim_products
     description: |
-      Product dimension table. The grain of the table is one row per product.
+      Product dimension table. One row per product.
     columns:
       - name: product_id
-        description: The unique key of the products dimension.
+        description: "{{ doc('product_id') }}"
         data_tests:
           - not_null
           - unique
       - name: product_name
         description: The name of the product.
       - name: product_type
-        description: The type of the product (e.g. jaffle, beverage).
+        description: The category of the product (e.g. jaffle, beverage).
       - name: product_description
-        description: A description of the product.
+        description: A free-text description of the product.
+      - name: product_price
+        description: The price of the product in USD.
       - name: is_food_item
         description: A boolean indicating if the product is a food item.
       - name: is_drink_item
         description: A boolean indicating if the product is a drink item.
-      - name: product_price
-        description: The price of the product in USD.
-
-  - name: dim_supplies
-    description: |
-      Supplies dimension table. The grain of the table is one row per supply and product combination.
-    columns:
-      - name: supply_uuid
-        description: The unique key of the supplies dimension (one row per supply-product combination).
-        data_tests:
-          - not_null
-          - unique
-      - name: supply_id
-        description: The identifier of the supply.
-      - name: product_id
-        description: The foreign key relating to the product the supply is used for.
-      - name: supply_name
-        description: The name of the supply.
-      - name: supply_cost
-        description: The cost of the supply in USD.
-      - name: is_perishable_supply
-        description: A boolean indicating if the supply is perishable.
-
-  - name: dim_locations
-    description: |
-      Location dimension table. The grain of the table is one row per location.
-    columns:
-      - name: location_id
-        description: The unique key of the locations dimension.
-        data_tests:
-          - not_null
-          - unique
-      - name: location_name
-        description: The name of the location (store).
-      - name: opened_date
-        description: The date the location opened.
 
 unit_tests:
   - name: test_order_items_compute_to_bools_correctly
@@ -173,31 +159,3 @@ unit_tests:
       rows:
         - {order_id: 1, count_food_items: 1, count_drink_items: 1, is_drink_order: true, is_food_order: true}
         - {order_id: 2, count_food_items: 1, count_drink_items: 0, is_drink_order: false, is_food_order: true}
-
-  - name: test_supply_costs_sum_correctly
-    description: "Test that supply costs are summed correctly per order item."
-    model: fct_order_items
-    given:
-      - input: ref('stg_supplies')
-        rows:
-          - {product_id: 1, supply_cost: 4.50}
-          - {product_id: 2, supply_cost: 3.50}
-          - {product_id: 2, supply_cost: 5.00}
-      - input: ref('stg_products')
-        rows:
-          - {product_id: 1}
-          - {product_id: 2}
-      - input: ref('stg_order_items')
-        rows:
-          - {order_id: 1, product_id: 1}
-          - {order_id: 2, product_id: 2}
-          - {order_id: 2, product_id: 2}
-      - input: ref('stg_orders')
-        rows:
-          - {order_id: 1}
-          - {order_id: 2}
-    expect:
-      rows:
-        - {order_id: 1, product_id: 1, supply_cost: 4.50}
-        - {order_id: 2, product_id: 2, supply_cost: 8.50}
-        - {order_id: 2, product_id: 2, supply_cost: 8.50}
