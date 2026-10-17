@@ -1,0 +1,16 @@
+# Snapshot: SCD Type 2 history for products — tracks how product attributes
+# (notably price) change over time. Built from the raw_products source.
+#
+# Strategy "check": dbt compares the tracked columns on each run; when a column
+# changes for an existing sku, the old row is closed (dbt_valid_to is set) and a
+# new current row is written. New products simply get a new record.
+# Run with `dbt snapshot` (also runs as part of `dbt build`).
+
+snapshots:
+  - name: products_snapshot
+    relation: source('ecom', 'raw_products')
+    config:
+      schema: snapshots
+      unique_key: sku
+      strategy: check
+      check_cols: all
