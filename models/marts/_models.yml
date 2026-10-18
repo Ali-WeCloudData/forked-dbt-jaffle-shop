@@ -45,9 +45,7 @@ models:
         description: A boolean indicating if this order included any drink items.
 
   - name: fct_order_items
-    description: |
-      Order item fact table. One enriched row per order item, with its product
-      details and per-product supply cost.
+    description: Order item fact table. One enriched row per order item, with its product details and per-product supply cost.
     columns:
       - name: order_item_id
         description: "{{ doc('order_item_id') }}"
